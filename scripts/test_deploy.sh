@@ -94,6 +94,21 @@ check_bump v1.2.3    patch v1.2.4
 check_bump v1.2.3    major v2.0.0
 check_bump v1.9.0    minor v1.10.0
 
+echo "==> release label -> version kind"
+check_kind() {
+    local labels=$1 expected=$2 got code=0
+    got=$(printf '%b' "$labels" | ./scripts/deploy.sh release-kind 2>/dev/null) || code=$?
+    [[ "$got|$code" == "$expected" ]] && pass "labels [$labels] -> $expected" \
+        || fail "labels [$labels] -> expected $expected, got $got|$code"
+}
+check_kind 'release:major'                       'major|0'
+check_kind 'bug\nrelease:patch\ndocs'            'patch|0'
+check_kind 'bug\ndocs'                            '|0'
+check_kind ''                                    '|0'
+check_kind 'release:minor\nrelease:major'         '|3'
+check_kind 'release:minor\nrelease:minor'         'minor|0'
+check_kind 'release:huge'                        '|0'
+
 if [[ $failed -ne 0 ]]; then
     echo "FAILED"
     exit 1

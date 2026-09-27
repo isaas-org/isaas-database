@@ -10,6 +10,9 @@
 #                                      (KIND = major | minor | patch, default minor;
 #                                      v1.0.0 if there is no tag yet)
 #   deploy.sh bump TAG KIND            pure version bump, e.g. bump v1.2.3 minor -> v1.3.0
+#   deploy.sh release-kind             read PR label names (one per line) on stdin and print
+#                                      major | minor | patch for the release:* label, or
+#                                      nothing if there is none; exit 3 if there are several
 #   deploy.sh rollback-to FILE         roll back newest-first until the applied versions
 #                                      equal the list in FILE (a snapshot from `applied`)
 #
@@ -69,6 +72,18 @@ bump() {
     esac
 }
 
+release_kind() {
+    local kinds count
+    kinds=$(grep -E '^release:(major|minor|patch)$' | sed 's/^release://' | sort -u || true)
+    count=$(printf '%s' "$kinds" | grep -c . || true)
+    if [[ "$count" -gt 1 ]]; then
+        echo "PR has more than one release label: $(echo $kinds)" >&2
+        return 3
+    fi
+    [[ -n "$kinds" ]] && echo "$kinds"
+    return 0
+}
+
 next_version() {
     local latest
     latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
@@ -106,6 +121,7 @@ case "$cmd" in
     check-order)  check_order ;;
     next-version) next_version "$@" ;;
     bump)         bump "$@" ;;
+    release-kind) release_kind ;;
     rollback-to)  rollback_to "$1" ;;
-    *) sed -n '2,17p' "$0" >&2; exit 2 ;;
+    *) sed -n '2,20p' "$0" >&2; exit 2 ;;
 esac

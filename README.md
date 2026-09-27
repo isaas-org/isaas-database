@@ -82,25 +82,36 @@ CI (`.github/workflows/test.yml`) runs the same script against a `postgres:18` s
 ## Release flow
 
 1. Work on a feature branch (e.g. `feature/FD-2`) and open a PR. CI runs the tests.
-2. Merge to `main` (done by the repo owner). **That merge is the release.**
-3. `.github/workflows/deploy.yml` runs automatically on pushes to `main` that change `db/migrations/`. It only ever deploys from `main`: it:
-   1. re-runs the tests;
-   2. records the currently applied migration versions, which are the *latest stable version*, and rejects out-of-order migrations;
-   3. **creates the next version tag automatically** (`v1.0.0` for the first release, then a minor bump such as `v1.1.0`);
-   4. applies the migrations with `dbmate up` and verifies nothing is still pending.
-4. **If applying or verifying fails**, the job:
+2. If the PR changes `db/migrations/`, give it **exactly one** release label. The `release-label` check fails until it has one.
+
+   | Label | When to use it | Example |
+   |-------|----------------|---------|
+   | `release:major` | Breaking change for code reading the DB | drop or rename a column, table or enum value |
+   | `release:minor` | Additive change | new table, nullable column, enum value |
+   | `release:patch` | No structural change | index, comment, trigger fix |
+
+3. Merge to `main` (done by the repo owner). `.github/workflows/deploy.yml` then runs, only ever from `main`:
+   - **test**: re-runs the test suite.
+   - **plan**: reads the merged PR's release label (it defaults to `minor` if there is none) and writes the planned release to the run summary: the version (the first release is `v1.0.0`), the previous release and the new migrations.
+   - **migrate**: **waits for your approval** (the `production` environment's required reviewers). It then:
+     1. records the currently applied migrations, which are the *latest stable version*;
+     2. creates the tag;
+     3. applies the migrations with `dbmate up`;
+     4. verifies nothing is still pending.
+4. **Wrong version in the plan?** Reject the paused job, change the label on the (already merged) PR, and click **Re-run all jobs**. The plan job fetches labels live, so it picks up the change.
+5. **If applying or verifying fails**, `migrate`:
    - rolls back every migration applied during that run, returning the schema exactly to the stable snapshot (migrations that were already live are never touched);
    - **deletes the tag it created**.
 
-   The job summary shows which of these happened.
+You can also start a release manually from the Actions tab (`workflow_dispatch`, main only). The bump you choose there overrides the label. A run with no pending migrations creates no tag.
 
-You can also start a release manually from the Actions tab (`workflow_dispatch`, main only) and choose a `major`, `minor` or `patch` bump. A run with no pending migrations creates no tag.
+The release logic lives in `scripts/deploy.sh`. `scripts/test_deploy.sh` runs in CI and exercises the failure paths against a deliberately failing migration: a partial deploy, a first deploy, out-of-order migrations, version bumps and label parsing.
 
-The release logic lives in `scripts/deploy.sh`. `scripts/test_deploy.sh` runs in CI and exercises the failure paths against a deliberately failing migration: a partial deploy, a first deploy, out-of-order migrations, and version bumps.
+One-time setup: in Settings → Environments → `production`:
+- add the secret `NEON_DATABASE_URL`. Use Neon's **direct** connection string (not the `-pooler` host) with `sslmode=require`;
+- add yourself under **Required reviewers**, which is what makes `migrate` wait for approval. Leave "Prevent self-review" unchecked if you're the only reviewer.
 
 Caveat: rollback runs each migration's `-- migrate:down` section, so a down section must genuinely undo its up section. For a destructive change (e.g. dropping a column that holds data), also take a Neon branch snapshot before merging, because a down section can't restore deleted data.
-
-One-time setup: create a GitHub environment called `production` with the secret `NEON_DATABASE_URL`. Use Neon's **direct** connection string (not the `-pooler` host) with `sslmode=require`. Add required reviewers to that environment if you want a manual approval before production migrations.
 
 To try a change against real Neon first, create a Neon branch, point `DATABASE_URL` at it and run `dbmate up`.
 

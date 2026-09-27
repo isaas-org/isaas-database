@@ -2,10 +2,15 @@ name: deploy
 
 # Releases schema changes to Neon from main only.
 #
-#   merge to main (touching db/migrations) -> tests -> snapshot the live
-#   schema version -> create the next vX.Y.Z tag -> apply migrations -> verify
+#   merge to main (touching db/migrations)
+#     -> test
+#     -> plan:    pick the version bump from the merged PR's release:* label
+#                 (default minor) and show the release in the run summary
+#     -> migrate: PAUSES for approval (production environment reviewers), then
+#                 snapshots the live schema version, creates the tag, applies
+#                 and verifies migrations
 #
-# If applying or verifying fails, the job rolls the schema back to the
+# If applying or verifying fails, migrate rolls the schema back to the
 # snapshot (the latest stable version) and deletes the tag it created.
 on:
   push:
@@ -14,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: Version part to bump for the release tag
+        description: Version part to bump (overrides the PR label)
         type: choice
         options: [minor, patch, major]
         default: minor
@@ -22,7 +27,7 @@ on:
 permissions:
   contents: read
 
-# Never run two releases against the same database at once.
+# Never run two releases at once (also keeps plan's version valid until migrate).
 concurrency:
   group: neon-migrate-production
   cancel-in-progress: false
@@ -36,23 +41,89 @@ jobs:
     if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/test.yml
 
-  migrate:
+  plan:
     needs: test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # Add required reviewers to this environment in repo settings for a manual
-    # approval step before production migrations.
+    permissions:
+      contents: read
+      pull-requests: read # find the merged PR and its labels
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      bump: ${{ steps.plan.outputs.bump }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags
+
+      - name: Plan release
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          INPUT_BUMP: ${{ inputs.bump }}
+        run: |
+          pr="" source=""
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            bump="$INPUT_BUMP"; source="manual input"
+          else
+            # Labels are fetched live (not from the push payload), so editing the
+            # label on the merged PR and re-running this workflow picks it up.
+            pr_json=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+              --jq '[.[] | select(.merged_at != null and .base.ref == "main")][0] // empty')
+            if [ -n "$pr_json" ]; then
+              pr=$(jq -r '.number' <<< "$pr_json")
+              bump=$(jq -r '.labels[].name' <<< "$pr_json" | ./scripts/deploy.sh release-kind)
+              source="label on PR #$pr"
+            fi
+            if [ -z "${bump:-}" ]; then
+              bump="minor"; source="${pr:+PR #$pr has no release label, }default"
+            fi
+          fi
+
+          stable_tag=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
+          version=$(./scripts/deploy.sh bump "$stable_tag" "$bump")
+          if [ -n "$stable_tag" ]; then
+            added=$(git diff --name-only --diff-filter=A "$stable_tag" "$GITHUB_SHA" -- db/migrations)
+          else
+            added=$(git ls-files db/migrations)
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "bump=$bump" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Release plan: **$version**"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Bump | \`$bump\` ($source) |"
+            echo "| Previous release | ${stable_tag:-none (first release)} |"
+            echo "| Commit | \`${GITHUB_SHA:0:7}\` |"
+            echo
+            echo "**Migrations added since ${stable_tag:-the start}:**"
+            echo
+            if [ -n "$added" ]; then sed 's/^/- `/; s/$/`/' <<< "$added"; else echo "_none_"; fi
+            echo
+            echo "Approve the **migrate** job to release. If the version is wrong: reject," \
+                 "change the \`release:*\` label on the PR, and re-run all jobs."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  migrate:
+    needs: plan
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Required reviewers on this environment make the job wait for approval.
     environment: production
     permissions:
       contents: write # create / delete release tags
     env:
       # Neon *direct* (non-pooled) connection string, with sslmode=require.
       DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
-      BUMP: ${{ inputs.bump || 'minor' }}
+      TAG: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history + tags, to compute the next version
+          fetch-depth: 0
 
       - name: Install dbmate
         run: |
@@ -66,6 +137,10 @@ jobs:
             echo "::error::NEON_DATABASE_URL secret is not set on the production environment."
             exit 1
           fi
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::Tag $TAG already exists. Re-run the workflow so plan picks a fresh version."
+            exit 1
+          fi
 
       - name: Snapshot latest stable schema version
         id: snapshot
@@ -73,7 +148,6 @@ jobs:
           ./scripts/deploy.sh applied > "$RUNNER_TEMP/stable_versions.txt"
           ./scripts/deploy.sh pending > "$RUNNER_TEMP/pending_versions.txt"
           ./scripts/deploy.sh check-order
-          echo "stable_tag=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)" >> "$GITHUB_OUTPUT"
           if [ -s "$RUNNER_TEMP/pending_versions.txt" ]; then
             echo "has_pending=true" >> "$GITHUB_OUTPUT"
             echo "Pending migrations:"; cat "$RUNNER_TEMP/pending_versions.txt"
@@ -86,14 +160,13 @@ jobs:
         id: tag
         if: steps.snapshot.outputs.has_pending == 'true'
         run: |
-          tag=$(./scripts/deploy.sh next-version "$BUMP")
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$tag" "$GITHUB_SHA" -m "Schema release $tag" \
+          git tag -a "$TAG" "$GITHUB_SHA" -m "Schema release $TAG" \
             -m "Migrations: $(paste -sd ' ' "$RUNNER_TEMP/pending_versions.txt")"
-          git push origin "refs/tags/$tag"
-          echo "name=$tag" >> "$GITHUB_OUTPUT"
-          echo "Created tag $tag"
+          git push origin "refs/tags/$TAG"
+          echo "name=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Created tag $TAG"
 
       - name: Apply migrations
         if: steps.snapshot.outputs.has_pending == 'true'
@@ -114,8 +187,6 @@ jobs:
 
       - name: Delete release tag
         if: failure() && steps.tag.outputs.name != ''
-        env:
-          TAG: ${{ steps.tag.outputs.name }}
         run: |
           git push origin ":refs/tags/$TAG"
           echo "Deleted tag $TAG"
@@ -123,8 +194,7 @@ jobs:
       - name: Summary
         if: always()
         env:
-          TAG: ${{ steps.tag.outputs.name }}
-          STABLE_TAG: ${{ steps.snapshot.outputs.stable_tag }}
+          CREATED: ${{ steps.tag.outputs.name }}
           HAS_PENDING: ${{ steps.snapshot.outputs.has_pending }}
           JOB_STATUS: ${{ job.status }}
         run: |
@@ -133,9 +203,9 @@ jobs:
             if [ "$HAS_PENDING" = "false" ]; then
               echo "No pending migrations. No tag created."
             elif [ "$JOB_STATUS" = "success" ]; then
-              echo "Released **$TAG** (previous: ${STABLE_TAG:-none})."
+              echo "Released **$TAG**."
             else
-              echo "Deploy failed. Rolled back to the latest stable version (${STABLE_TAG:-empty database})."
-              [ -n "$TAG" ] && echo "Tag **$TAG** was deleted."
+              echo "Deploy failed. Rolled back to the latest stable version."
+              [ -n "$CREATED" ] && echo "Tag **$CREATED** was deleted."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

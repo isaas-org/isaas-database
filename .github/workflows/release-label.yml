@@ -1,0 +1,34 @@
+name: release-label
+
+# A PR that changes migrations must say how big the schema change is:
+# exactly one of release:major, release:minor, release:patch.
+# The deploy workflow uses that label to pick the next version.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+    paths: ['db/migrations/**']
+
+permissions:
+  contents: read
+
+jobs:
+  release-label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require exactly one release label
+        env:
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          code=0
+          kind=$(jq -r '.[]' <<< "$LABELS_JSON" | ./scripts/deploy.sh release-kind) || code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "::error::More than one release:* label. Keep exactly one."
+            exit 1
+          fi
+          if [ -z "$kind" ]; then
+            echo "::error::This PR changes db/migrations. Add one label: release:major (breaking), release:minor (additive) or release:patch (non-structural)."
+            exit 1
+          fi
+          echo "Release kind: $kind"

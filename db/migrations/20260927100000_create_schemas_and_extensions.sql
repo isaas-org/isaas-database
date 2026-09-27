@@ -5,7 +5,7 @@
 -- split into its own database.
 CREATE SCHEMA vendors;
 CREATE SCHEMA items;
-CREATE SCHEMA buyers;
+CREATE SCHEMA buyer_companies;
 
 -- Trigram indexes for fuzzy catalog search.
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -23,6 +23,6 @@ $$;
 
 DROP FUNCTION public.set_updated_at();
 DROP EXTENSION IF EXISTS pg_trgm;
-DROP SCHEMA buyers;
+DROP SCHEMA buyer_companies;
 DROP SCHEMA items;
 DROP SCHEMA vendors;

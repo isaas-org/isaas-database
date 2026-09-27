@@ -4,16 +4,16 @@
 -- tables exist.
 
 -- ---------------------------------------------------------------------------
--- buyers.subscriptions  (buyer company -> item pricing plan)
+-- buyer_companies.subscriptions  (buyer company -> item pricing plan)
 -- ---------------------------------------------------------------------------
 
-CREATE TYPE buyers.subscription_status AS ENUM ('trial', 'active', 'cancelled');
+CREATE TYPE buyer_companies.subscription_status AS ENUM ('trial', 'active', 'cancelled');
 
-CREATE TABLE buyers.subscriptions (
+CREATE TABLE buyer_companies.subscriptions (
     id               uuid PRIMARY KEY DEFAULT uuidv7(),
-    buyer_company_id uuid NOT NULL REFERENCES buyers.buyer_companies (id) ON DELETE RESTRICT,
+    buyer_company_id uuid NOT NULL REFERENCES buyer_companies.buyer_companies (id) ON DELETE RESTRICT,
     pricing_plan_id  uuid NOT NULL REFERENCES items.pricing_plans (id) ON DELETE RESTRICT,
-    status           buyers.subscription_status NOT NULL,
+    status           buyer_companies.subscription_status NOT NULL,
     start_date       date NOT NULL DEFAULT current_date,
     end_date         date,
     seats            integer CHECK (seats > 0),
@@ -21,24 +21,24 @@ CREATE TABLE buyers.subscriptions (
     updated_at       timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT subscriptions_dates_ordered CHECK (end_date IS NULL OR end_date >= start_date)
 );
-CREATE INDEX subscriptions_buyer_company_id_idx ON buyers.subscriptions (buyer_company_id, status);
-CREATE INDEX subscriptions_pricing_plan_id_idx ON buyers.subscriptions (pricing_plan_id);
+CREATE INDEX subscriptions_buyer_company_id_idx ON buyer_companies.subscriptions (buyer_company_id, status);
+CREATE INDEX subscriptions_pricing_plan_id_idx ON buyer_companies.subscriptions (pricing_plan_id);
 
-CREATE TRIGGER subscriptions_set_updated_at BEFORE UPDATE ON buyers.subscriptions
+CREATE TRIGGER subscriptions_set_updated_at BEFORE UPDATE ON buyer_companies.subscriptions
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
--- buyers.watchlist  (owned by the individual user, not the company)
+-- buyer_companies.watchlist  (owned by the individual user, not the company)
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE buyers.watchlist (
+CREATE TABLE buyer_companies.watchlist (
     id            uuid PRIMARY KEY DEFAULT uuidv7(),
-    buyer_user_id uuid NOT NULL REFERENCES buyers.buyer_users (id) ON DELETE CASCADE,
+    buyer_user_id uuid NOT NULL REFERENCES buyer_companies.buyer_users (id) ON DELETE CASCADE,
     item_id       uuid NOT NULL REFERENCES items.items (id) ON DELETE CASCADE,
     created_at    timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT watchlist_user_item_unique UNIQUE (buyer_user_id, item_id)
 );
-CREATE INDEX watchlist_item_id_idx ON buyers.watchlist (item_id);
+CREATE INDEX watchlist_item_id_idx ON buyer_companies.watchlist (item_id);
 
 -- ---------------------------------------------------------------------------
 -- items.reviews  (company drives "verified purchase", user is the author)
@@ -47,7 +47,7 @@ CREATE INDEX watchlist_item_id_idx ON buyers.watchlist (item_id);
 CREATE TABLE items.reviews (
     id                   uuid PRIMARY KEY DEFAULT uuidv7(),
     item_id              uuid NOT NULL REFERENCES items.items (id) ON DELETE CASCADE,
-    buyer_company_id     uuid NOT NULL REFERENCES buyers.buyer_companies (id) ON DELETE CASCADE,
+    buyer_company_id     uuid NOT NULL REFERENCES buyer_companies.buyer_companies (id) ON DELETE CASCADE,
     buyer_user_id        uuid NOT NULL,
     rating               smallint NOT NULL CHECK (rating BETWEEN 1 AND 5),
     body                 text,
@@ -58,7 +58,7 @@ CREATE TABLE items.reviews (
     -- The author must belong to the reviewing company.
     CONSTRAINT reviews_author_fkey
         FOREIGN KEY (buyer_user_id, buyer_company_id)
-        REFERENCES buyers.buyer_users (id, buyer_company_id) ON DELETE CASCADE,
+        REFERENCES buyer_companies.buyer_users (id, buyer_company_id) ON DELETE CASCADE,
     -- One review per user per item.
     CONSTRAINT reviews_item_user_unique UNIQUE (item_id, buyer_user_id)
 );
@@ -82,7 +82,7 @@ BEGIN
     IF TG_OP = 'INSERT' THEN
         NEW.is_verified_purchase := EXISTS (
             SELECT 1
-            FROM buyers.subscriptions s
+            FROM buyer_companies.subscriptions s
             JOIN items.pricing_plans p ON p.id = s.pricing_plan_id
             WHERE s.buyer_company_id = NEW.buyer_company_id
               AND p.item_id = NEW.item_id
@@ -181,7 +181,7 @@ DROP FUNCTION items.reviews_refresh_item_rating();
 DROP FUNCTION items.refresh_item_rating(uuid);
 DROP FUNCTION items.set_review_verified_purchase();
 
-DROP TABLE buyers.watchlist;
+DROP TABLE buyer_companies.watchlist;
 
-DROP TABLE buyers.subscriptions;
-DROP TYPE buyers.subscription_status;
+DROP TABLE buyer_companies.subscriptions;
+DROP TYPE buyer_companies.subscription_status;

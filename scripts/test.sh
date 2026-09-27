@@ -51,7 +51,7 @@ for _ in $(seq "$migration_count"); do
 done
 
 leftovers=$("${PSQL[@]}" -At -c "
-    SELECT string_agg(nspname, ', ') FROM pg_namespace WHERE nspname IN ('items', 'buyers', 'vendors')
+    SELECT string_agg(nspname, ', ') FROM pg_namespace WHERE nspname IN ('items', 'buyer_companies', 'vendors')
 ")
 if [[ -n "$leftovers" ]]; then
     echo "  FAIL  schemas left after full rollback: $leftovers"

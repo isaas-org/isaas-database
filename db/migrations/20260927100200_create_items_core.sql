@@ -46,7 +46,7 @@ CREATE TRIGGER categories_prevent_cycle
     BEFORE INSERT OR UPDATE OF parent_category_id ON items.categories
     FOR EACH ROW EXECUTE FUNCTION items.prevent_category_cycle();
 
--- Industry taxonomy. Referenced by buyers.buyer_companies.industry_id, and the
+-- Industry taxonomy. Referenced by buyer_companies.buyer_companies.industry_id, and the
 -- natural target for a future items.item_industries ("industries served").
 CREATE TABLE items.industries (
     id         uuid PRIMARY KEY DEFAULT uuidv7(),

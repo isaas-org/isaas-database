@@ -10,7 +10,7 @@ The repo holds one database with one Postgres schema per domain. Cross-domain fo
 |-----------|--------|
 | `vendors` | `vendors`, `vendor_users`, `vendor_addresses`, `vendor_verification_artifacts`, `payout_accounts`, `commission_rates` |
 | `items`   | `items`, `categories`, `item_categories`, `industries`, `pricing_plans`, `features`, `integrations`, `item_integrations`, `certifications`, `item_certifications`, `item_media`, `reviews`, view `published_catalog` |
-| `buyers`  | `buyer_companies`, `buyer_users`, `addresses`, `payment_methods`, `buyer_verification_artifacts`, `subscriptions`, `watchlist` |
+| `buyer_companies` | `buyer_companies`, `buyer_users`, `addresses`, `payment_methods`, `buyer_verification_artifacts`, `subscriptions`, `watchlist` |
 
 The migrations run in dependency order:
 
@@ -19,7 +19,7 @@ db/migrations/
   20260927100000_create_schemas_and_extensions.sql   schemas, pg_trgm, set_updated_at()
   20260927100100_create_vendors_core.sql
   20260927100200_create_items_core.sql                (depends on vendors)
-  20260927100300_create_buyers_core.sql               (depends on items.industries)
+  20260927100300_create_buyer_companies_core.sql               (depends on items.industries)
   20260927100400_create_cross_domain_tables.sql       subscriptions, watchlist, reviews, commission_rates
   20260927100500_create_catalog_search_and_view.sql   full-text search, trigram index, published_catalog
 ```

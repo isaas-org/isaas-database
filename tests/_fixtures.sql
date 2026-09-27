@@ -33,11 +33,11 @@ INSERT INTO items.pricing_plans (id, item_id, tier_name, pricing_model, price, b
     ('0d000000-0000-0000-0000-000000000001', '0c000000-0000-0000-0000-000000000001', 'Starter', 'seat', 10.00, 'monthly'),
     ('0d000000-0000-0000-0000-000000000002', '0c000000-0000-0000-0000-000000000003', 'Pro',     'flat', 99.00, 'annual');
 
-INSERT INTO buyers.buyer_companies (id, name, industry_id, company_size) VALUES
+INSERT INTO buyer_companies.buyer_companies (id, name, industry_id, company_size) VALUES
     ('0e000000-0000-0000-0000-000000000001', 'Buyer One LLC', '01000000-0000-0000-0000-000000000101', '51-200'),
     ('0e000000-0000-0000-0000-000000000002', 'Buyer Two Corp', NULL, '5000+');
 
-INSERT INTO buyers.buyer_users (id, buyer_company_id, name, email, role) VALUES
+INSERT INTO buyer_companies.buyer_users (id, buyer_company_id, name, email, role) VALUES
     ('0f000000-0000-0000-0000-000000000001', '0e000000-0000-0000-0000-000000000001', 'Bo Buyer',   'bo@one.test',   'admin'),
     ('0f000000-0000-0000-0000-000000000002', '0e000000-0000-0000-0000-000000000001', 'Bea Viewer', 'bea@one.test',  'viewer'),
     ('0f000000-0000-0000-0000-000000000003', '0e000000-0000-0000-0000-000000000002', 'Tom Two',    'tom@two.test',  'purchaser');

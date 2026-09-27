@@ -68,8 +68,14 @@ DBMATE='npx --yes dbmate@2' TEST_DATABASE_URL=... ./scripts/test.sh
 `scripts/test.sh` drops and recreates the test database, then:
 1. applies every migration;
 2. runs each `tests/NN_*.sql` against shared fixtures inside a transaction that is rolled back afterwards;
-3. rolls back every migration and checks that nothing is left behind;
-4. migrates up again.
+3. rolls back every migration and checks that nothing is left behind (schemas, `public` objects, extensions);
+4. migrates up again and re-runs the tests.
+
+Writing tests:
+- Refer to fixture rows by name, e.g. `pg_temp.fx('vendor.pending')`. The names are listed at the top of `tests/_fixtures.sql`. To add your own, insert a name into `pg_temp.fixture_ids` and use `pg_temp.fx(...)` as the row's `id`.
+- A negative test must name what should reject the statement: `pg_temp.assert_raises(stmt, sqlstate, '<constraint or index name>', message)`. For errors raised by a trigger, give a substring of the error message instead. This means a test can't pass because a *different* constraint with the same SQLSTATE happened to fire.
+- `tests/11_enum_vocabulary.sql` pins every status and role value list. Adding or changing an enum value must update that file too.
+- A new rule needs a test that fails when the rule is removed. Check this by dropping the constraint in a scratch database and running the test file.
 
 CI (`.github/workflows/test.yml`) runs the same script against a `postgres:18` service container on every PR and every push to `feature/**`.
 

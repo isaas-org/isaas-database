@@ -168,7 +168,9 @@ CREATE TABLE items.pricing_plans (
     CONSTRAINT pricing_plans_usage_limits_is_object
         CHECK (usage_limits IS NULL OR jsonb_typeof(usage_limits) = 'object'),
     CONSTRAINT pricing_plans_tier_unique
-        UNIQUE NULLS NOT DISTINCT (item_id, tier_name, billing_frequency)
+        UNIQUE NULLS NOT DISTINCT (item_id, tier_name, billing_frequency),
+    -- Target for composite FKs that must keep a plan and its item consistent.
+    CONSTRAINT pricing_plans_id_item_key UNIQUE (id, item_id)
 );
 CREATE INDEX pricing_plans_item_id_idx ON items.pricing_plans (item_id);
 -- Supports price-range filtering in the catalog.

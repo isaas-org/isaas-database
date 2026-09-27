@@ -4,7 +4,7 @@
 -- tables exist.
 
 -- ---------------------------------------------------------------------------
--- buyer_companies.subscriptions  (buyer company -> item pricing plan)
+-- buyer_companies.subscriptions  (buyer company -> item + chosen pricing plan)
 -- ---------------------------------------------------------------------------
 
 CREATE TYPE buyer_companies.subscription_status AS ENUM ('trial', 'active', 'cancelled');
@@ -12,17 +12,25 @@ CREATE TYPE buyer_companies.subscription_status AS ENUM ('trial', 'active', 'can
 CREATE TABLE buyer_companies.subscriptions (
     id               uuid PRIMARY KEY DEFAULT uuidv7(),
     buyer_company_id uuid NOT NULL REFERENCES buyer_companies.buyer_companies (id) ON DELETE RESTRICT,
-    pricing_plan_id  uuid NOT NULL REFERENCES items.pricing_plans (id) ON DELETE RESTRICT,
+    item_id          uuid NOT NULL,
+    pricing_plan_id  uuid NOT NULL,
     status           buyer_companies.subscription_status NOT NULL,
     start_date       date NOT NULL DEFAULT current_date,
     end_date         date,
     seats            integer CHECK (seats > 0),
     created_at       timestamptz NOT NULL DEFAULT now(),
     updated_at       timestamptz NOT NULL DEFAULT now(),
+    -- item_id is stored for direct lookups, and this FK guarantees it always
+    -- matches the plan's item. Upgrades/downgrades that change pricing_plan_id
+    -- must stay within the same item.
+    CONSTRAINT subscriptions_plan_item_fkey
+        FOREIGN KEY (pricing_plan_id, item_id)
+        REFERENCES items.pricing_plans (id, item_id) ON DELETE RESTRICT,
     CONSTRAINT subscriptions_dates_ordered CHECK (end_date IS NULL OR end_date >= start_date)
 );
 CREATE INDEX subscriptions_buyer_company_id_idx ON buyer_companies.subscriptions (buyer_company_id, status);
-CREATE INDEX subscriptions_pricing_plan_id_idx ON buyer_companies.subscriptions (pricing_plan_id);
+CREATE INDEX subscriptions_pricing_plan_id_idx ON buyer_companies.subscriptions (pricing_plan_id, item_id);
+CREATE INDEX subscriptions_item_id_idx ON buyer_companies.subscriptions (item_id, status);
 
 CREATE TRIGGER subscriptions_set_updated_at BEFORE UPDATE ON buyer_companies.subscriptions
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -83,9 +91,8 @@ BEGIN
         NEW.is_verified_purchase := EXISTS (
             SELECT 1
             FROM buyer_companies.subscriptions s
-            JOIN items.pricing_plans p ON p.id = s.pricing_plan_id
             WHERE s.buyer_company_id = NEW.buyer_company_id
-              AND p.item_id = NEW.item_id
+              AND s.item_id = NEW.item_id
               AND s.status IN ('active', 'cancelled')
         );
     ELSE

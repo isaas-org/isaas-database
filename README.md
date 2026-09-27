@@ -36,6 +36,7 @@ db/migrations/
 | The category tree has no cycles | trigger `items.prevent_category_cycle` |
 | A review author or artifact submitter belongs to the company/vendor named on the row | composite FKs to `(id, buyer_company_id)` / `(id, vendor_id)` |
 | An item-level commission override is for the vendor's own item | composite FK to `items (id, vendor_id)` |
+| A subscription stores its `item_id` and `pricing_plan_id`, and the plan always belongs to that item (upgrades/downgrades stay within the item) | composite FK to `pricing_plans (id, item_id)` |
 | A commission rate has one scope (item, category, or vendor-wide), and each scope has one rate | CHECK `num_nonnulls(...) <= 1` + `UNIQUE NULLS NOT DISTINCT` |
 | A company or vendor has at most one default payment method / payout account | partial unique indexes `WHERE is_default` |
 | A subscribed plan can't be deleted (retire it with `is_active = false`) | `ON DELETE RESTRICT` |

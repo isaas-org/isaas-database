@@ -66,8 +66,9 @@ VALUES ('0c000000-0000-0000-0000-000000000001', 'Usage', 'usage', 0.01, 'monthly
 
 -- Subscriptions.
 SELECT pg_temp.assert_raises(
-    $$INSERT INTO buyer_companies.subscriptions (buyer_company_id, pricing_plan_id, status, start_date, end_date)
-      VALUES ('0e000000-0000-0000-0000-000000000001', '0d000000-0000-0000-0000-000000000001', 'active', '2026-02-01', '2026-01-01')$$,
+    $$INSERT INTO buyer_companies.subscriptions (buyer_company_id, item_id, pricing_plan_id, status, start_date, end_date)
+      VALUES ('0e000000-0000-0000-0000-000000000001', '0c000000-0000-0000-0000-000000000001',
+              '0d000000-0000-0000-0000-000000000001', 'active', '2026-02-01', '2026-01-01')$$,
     '23514', 'end_date before start_date rejected');
 
 -- Watchlist: one entry per user per item; removed with the user.

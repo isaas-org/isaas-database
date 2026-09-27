@@ -1,7 +1,7 @@
 -- Buyer One has an active subscription to Acme CRM; Buyer Two only a trial.
-INSERT INTO buyer_companies.subscriptions (buyer_company_id, pricing_plan_id, status, seats) VALUES
-    ('0e000000-0000-0000-0000-000000000001', '0d000000-0000-0000-0000-000000000001', 'active', 5),
-    ('0e000000-0000-0000-0000-000000000002', '0d000000-0000-0000-0000-000000000001', 'trial',  NULL);
+INSERT INTO buyer_companies.subscriptions (buyer_company_id, item_id, pricing_plan_id, status, seats) VALUES
+    ('0e000000-0000-0000-0000-000000000001', '0c000000-0000-0000-0000-000000000001', '0d000000-0000-0000-0000-000000000001', 'active', 5),
+    ('0e000000-0000-0000-0000-000000000002', '0c000000-0000-0000-0000-000000000001', '0d000000-0000-0000-0000-000000000001', 'trial',  NULL);
 
 -- Verified purchase is computed, and a client-supplied value is ignored.
 INSERT INTO items.reviews (item_id, buyer_company_id, buyer_user_id, rating, body, is_verified_purchase) VALUES

@@ -40,3 +40,8 @@ jobs:
         env:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/isaas_test?sslmode=disable
         run: ./scripts/test.sh
+
+      - name: Run deploy rollback tests
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/isaas_deploy_test?sslmode=disable
+        run: ./scripts/test_deploy.sh

@@ -82,15 +82,29 @@ CI (`.github/workflows/test.yml`) runs the same script against a `postgres:18` s
 ## Release flow
 
 1. Work on a feature branch (e.g. `feature/FD-2`) and open a PR. CI runs the tests.
-2. Merge to `main` (done by the repo owner).
-3. Tag the merge commit: `git tag v1.0.0 && git push origin v1.0.0`.
-4. `.github/workflows/deploy.yml` re-runs the tests, **refuses to continue if the tagged commit isn't on `main`**, and then runs `dbmate up` against Neon.
+2. Merge to `main` (done by the repo owner). **That merge is the release.**
+3. `.github/workflows/deploy.yml` runs automatically on pushes to `main` that change `db/migrations/`. It only ever deploys from `main`: it:
+   1. re-runs the tests;
+   2. records the currently applied migration versions, which are the *latest stable version*, and rejects out-of-order migrations;
+   3. **creates the next version tag automatically** (`v1.0.0` for the first release, then a minor bump such as `v1.1.0`);
+   4. applies the migrations with `dbmate up` and verifies nothing is still pending.
+4. **If applying or verifying fails**, the job:
+   - rolls back every migration applied during that run, returning the schema exactly to the stable snapshot (migrations that were already live are never touched);
+   - **deletes the tag it created**.
+
+   The job summary shows which of these happened.
+
+You can also start a release manually from the Actions tab (`workflow_dispatch`, main only) and choose a `major`, `minor` or `patch` bump. A run with no pending migrations creates no tag.
+
+The release logic lives in `scripts/deploy.sh`. `scripts/test_deploy.sh` runs in CI and exercises the failure paths against a deliberately failing migration: a partial deploy, a first deploy, out-of-order migrations, and version bumps.
+
+Caveat: rollback runs each migration's `-- migrate:down` section, so a down section must genuinely undo its up section. For a destructive change (e.g. dropping a column that holds data), also take a Neon branch snapshot before merging, because a down section can't restore deleted data.
 
 One-time setup: create a GitHub environment called `production` with the secret `NEON_DATABASE_URL`. Use Neon's **direct** connection string (not the `-pooler` host) with `sslmode=require`. Add required reviewers to that environment if you want a manual approval before production migrations.
 
 To try a change against real Neon first, create a Neon branch, point `DATABASE_URL` at it and run `dbmate up`.
 
-**Migrations are append-only once tagged.** Never edit a migration that has been applied to Neon. Add a new one instead.
+**Migrations are append-only once released.** Never edit a migration that has been applied to Neon. Add a new one instead.
 
 ## Additions to the design document
 

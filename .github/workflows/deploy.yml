@@ -1,15 +1,28 @@
 name: deploy
 
-# Releasing a schema change = pushing a version tag (e.g. v1.0.0) on a commit
-# that is already on main. This applies pending migrations to Neon.
+# Releases schema changes to Neon from main only.
+#
+#   merge to main (touching db/migrations) -> tests -> snapshot the live
+#   schema version -> create the next vX.Y.Z tag -> apply migrations -> verify
+#
+# If applying or verifying fails, the job rolls the schema back to the
+# snapshot (the latest stable version) and deletes the tag it created.
 on:
   push:
-    tags: ['v*.*.*']
+    branches: [main]
+    paths: ['db/migrations/**']
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version part to bump for the release tag
+        type: choice
+        options: [minor, patch, major]
+        default: minor
 
 permissions:
   contents: read
 
-# Never run two migration jobs against the same database at once.
+# Never run two releases against the same database at once.
 concurrency:
   group: neon-migrate-production
   cancel-in-progress: false
@@ -19,26 +32,27 @@ env:
 
 jobs:
   test:
+    # Manual runs can be started from any branch in the UI; only main deploys.
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/test.yml
 
   migrate:
     needs: test
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Add required reviewers to this environment in repo settings for a manual
     # approval step before production migrations.
     environment: production
+    permissions:
+      contents: write # create / delete release tags
+    env:
+      # Neon *direct* (non-pooled) connection string, with sslmode=require.
+      DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+      BUMP: ${{ inputs.bump || 'minor' }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-
-      - name: Refuse tags that are not on main
-        run: |
-          git fetch origin main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Tag ${GITHUB_REF_NAME} points at a commit that is not on main. Merge to main first, then tag."
-            exit 1
-          fi
+          fetch-depth: 0 # full history + tags, to compute the next version
 
       - name: Install dbmate
         run: |
@@ -46,15 +60,82 @@ jobs:
             "https://github.com/amacneil/dbmate/releases/download/${DBMATE_VERSION}/dbmate-linux-amd64"
           sudo chmod +x /usr/local/bin/dbmate
 
-      - name: Apply migrations to Neon
-        env:
-          # Neon *direct* (non-pooled) connection string, with sslmode=require.
-          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+      - name: Check configuration
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "::error::NEON_DATABASE_URL secret is not set on the production environment."
             exit 1
           fi
-          dbmate --no-dump-schema status || true
-          dbmate --no-dump-schema up
-          dbmate --no-dump-schema status
+
+      - name: Snapshot latest stable schema version
+        id: snapshot
+        run: |
+          ./scripts/deploy.sh applied > "$RUNNER_TEMP/stable_versions.txt"
+          ./scripts/deploy.sh pending > "$RUNNER_TEMP/pending_versions.txt"
+          ./scripts/deploy.sh check-order
+          echo "stable_tag=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)" >> "$GITHUB_OUTPUT"
+          if [ -s "$RUNNER_TEMP/pending_versions.txt" ]; then
+            echo "has_pending=true" >> "$GITHUB_OUTPUT"
+            echo "Pending migrations:"; cat "$RUNNER_TEMP/pending_versions.txt"
+          else
+            echo "has_pending=false" >> "$GITHUB_OUTPUT"
+            echo "No pending migrations; nothing to release."
+          fi
+
+      - name: Create release tag
+        id: tag
+        if: steps.snapshot.outputs.has_pending == 'true'
+        run: |
+          tag=$(./scripts/deploy.sh next-version "$BUMP")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$GITHUB_SHA" -m "Schema release $tag" \
+            -m "Migrations: $(paste -sd ' ' "$RUNNER_TEMP/pending_versions.txt")"
+          git push origin "refs/tags/$tag"
+          echo "name=$tag" >> "$GITHUB_OUTPUT"
+          echo "Created tag $tag"
+
+      - name: Apply migrations
+        if: steps.snapshot.outputs.has_pending == 'true'
+        run: dbmate --no-dump-schema up
+
+      - name: Verify deployed schema
+        if: steps.snapshot.outputs.has_pending == 'true'
+        run: |
+          dbmate --no-dump-schema status --exit-code
+          psql "$DATABASE_URL" -X -q -v ON_ERROR_STOP=1 -o /dev/null \
+            -c "SELECT count(*) FROM items.published_catalog"
+
+      # ---- failure handling -------------------------------------------------
+
+      - name: Roll back to latest stable version
+        if: failure() && steps.snapshot.outcome == 'success'
+        run: ./scripts/deploy.sh rollback-to "$RUNNER_TEMP/stable_versions.txt"
+
+      - name: Delete release tag
+        if: failure() && steps.tag.outputs.name != ''
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          git push origin ":refs/tags/$TAG"
+          echo "Deleted tag $TAG"
+
+      - name: Summary
+        if: always()
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+          STABLE_TAG: ${{ steps.snapshot.outputs.stable_tag }}
+          HAS_PENDING: ${{ steps.snapshot.outputs.has_pending }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "## Schema deploy: $JOB_STATUS"
+            if [ "$HAS_PENDING" = "false" ]; then
+              echo "No pending migrations. No tag created."
+            elif [ "$JOB_STATUS" = "success" ]; then
+              echo "Released **$TAG** (previous: ${STABLE_TAG:-none})."
+            else
+              echo "Deploy failed. Rolled back to the latest stable version (${STABLE_TAG:-empty database})."
+              [ -n "$TAG" ] && echo "Tag **$TAG** was deleted."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

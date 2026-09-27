@@ -1,0 +1,19 @@
+# Local Postgres matching Neon's major version. Host port 55432 avoids
+# clashing with any locally installed Postgres on 5432.
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: isaas_dev
+    ports:
+      - "55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      retries: 20
+
+volumes:
+  pgdata:

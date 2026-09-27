@@ -1,0 +1,42 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: ['feature/**']
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  DBMATE_VERSION: v2.36.0
+
+jobs:
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18 # keep in step with the Neon project's major version
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dbmate
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/dbmate \
+            "https://github.com/amacneil/dbmate/releases/download/${DBMATE_VERSION}/dbmate-linux-amd64"
+          sudo chmod +x /usr/local/bin/dbmate
+          dbmate --version
+
+      - name: Run migration tests
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/isaas_test?sslmode=disable
+        run: ./scripts/test.sh

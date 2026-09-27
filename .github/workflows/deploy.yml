@@ -1,0 +1,60 @@
+name: deploy
+
+# Releasing a schema change = pushing a version tag (e.g. v1.0.0) on a commit
+# that is already on main. This applies pending migrations to Neon.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+# Never run two migration jobs against the same database at once.
+concurrency:
+  group: neon-migrate-production
+  cancel-in-progress: false
+
+env:
+  DBMATE_VERSION: v2.36.0
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  migrate:
+    needs: test
+    runs-on: ubuntu-latest
+    # Add required reviewers to this environment in repo settings for a manual
+    # approval step before production migrations.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refuse tags that are not on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag ${GITHUB_REF_NAME} points at a commit that is not on main. Merge to main first, then tag."
+            exit 1
+          fi
+
+      - name: Install dbmate
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/dbmate \
+            "https://github.com/amacneil/dbmate/releases/download/${DBMATE_VERSION}/dbmate-linux-amd64"
+          sudo chmod +x /usr/local/bin/dbmate
+
+      - name: Apply migrations to Neon
+        env:
+          # Neon *direct* (non-pooled) connection string, with sslmode=require.
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::NEON_DATABASE_URL secret is not set on the production environment."
+            exit 1
+          fi
+          dbmate --no-dump-schema status || true
+          dbmate --no-dump-schema up
+          dbmate --no-dump-schema status

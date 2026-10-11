@@ -1,0 +1,32 @@
+name: seed
+
+# Applies sample catalog data (db/seeds/) to Neon. Manual only, and separate
+# from deploy.yml: this is dev/demo data, not a schema release -- it creates
+# no tag and isn't tracked by dbmate. Every insert in db/seeds/ is
+# idempotent, so re-running is safe.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    # Reuses the production environment's NEON_DATABASE_URL secret and
+    # required reviewers, same as deploy.yml's migrate job.
+    environment: production
+    env:
+      DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check configuration
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::NEON_DATABASE_URL secret is not set on the production environment."
+            exit 1
+          fi
+
+      - name: Apply seed data
+        run: ./scripts/seed.sh

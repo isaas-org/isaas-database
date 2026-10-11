@@ -79,6 +79,16 @@ Writing tests:
 
 CI (`.github/workflows/test.yml`) runs the same script against a `postgres:18` service container on every PR and every push to `feature/**`.
 
+## Seed data
+
+`db/seeds/` holds sample catalog data (vendors, items, pricing plans, taxonomy) for development and demos. It's not part of the schema and isn't tracked by dbmate or the release flow below -- every insert conflicts on the table's natural key, so it's safe to re-run.
+
+```bash
+DATABASE_URL=... ./scripts/seed.sh    # local or Neon branch
+```
+
+Against production Neon, run the **seed** workflow manually from the Actions tab (`workflow_dispatch`). It reuses the `production` environment's `NEON_DATABASE_URL` secret and required reviewers, same as `deploy.yml`, but creates no tag.
+
 ## Release flow
 
 1. Work on a feature branch (e.g. `feature/FD-2`) and open a PR. CI runs the tests.

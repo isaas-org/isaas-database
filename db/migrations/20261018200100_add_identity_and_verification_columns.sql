@@ -47,7 +47,8 @@ ALTER TABLE buyer_companies.buyer_companies
         CHECK (sso_connection_id IS NULL OR verification_status = 'verified');
 
 -- Rows verified before this migration (seed data) get their last update time.
--- verified_by_staff_id stays NULL for them: no staff member reviewed them.
+-- Their verified_by_staff_id is filled in by db/seeds/08_staff.sql, which
+-- creates the staff row; a migration doesn't carry people's data.
 UPDATE vendors.vendors SET verified_at = updated_at WHERE verification_status = 'verified';
 UPDATE buyer_companies.buyer_companies SET verified_at = updated_at WHERE verification_status = 'verified';
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Adds a platform staff admin to the database at DATABASE_URL. Used once to
-# create the first staff member; after that, staff admins add others through
-# the backend. The email is passed in rather than committed, because this
-# repo is public.
+# Adds a platform staff admin to the database at DATABASE_URL without
+# committing their email (this repo is public). The repo owner is seeded by
+# db/seeds/08_staff.sql; this is for anyone else, until the backend's staff
+# endpoints exist.
 #
 #   DATABASE_URL  target database
 #   STAFF_EMAIL   the email the person signs in to Auth0 with (verified)

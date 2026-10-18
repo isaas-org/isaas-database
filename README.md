@@ -106,18 +106,19 @@ DATABASE_URL=... ./scripts/seed.sh    # local or Neon branch
 - `05_buyer_companies.sql`: two active buyer companies and one pending (Fernway Logistics).
 - `06_test_users.sql`: one member per role for login testing, matching the Auth0 test users in `isaas-auth0-config`. Test data only; leave it out of any production database.
 - `07_verification_requests.sql`: pending documents for Cascade Labs and Fernway Logistics, for trying staff review.
+- `08_staff.sql`: the repo owner as the first staff admin, recorded as the verifier of every seeded verified company.
 
 Against production Neon, run the **seed** workflow manually from the Actions tab (`workflow_dispatch`). It reuses the `production` environment's `NEON_DATABASE_URL` secret and required reviewers, same as `deploy.yml`, but creates no tag.
 
 ## Staff bootstrap
 
-The first platform staff admin is added by script, so their email is never committed:
+The repo owner is seeded as the first staff admin (`08_staff.sql`). To add another staff admin without committing their email, before the backend's staff endpoints exist:
 
 ```bash
 DATABASE_URL=... STAFF_EMAIL=you@example.com STAFF_NAME='Your Name' ./scripts/bootstrap_staff.sh
 ```
 
-Use the email you sign in to Auth0 with. The backend binds `auth_provider_id` on your first login. Later staff are added through the backend.
+Use the email the person signs in to Auth0 with. The backend binds `auth_provider_id` on their first login. Once the backend is built, staff admins add others through it.
 
 ## Release flow
 

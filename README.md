@@ -8,9 +8,10 @@ The repo holds one database with one Postgres schema per domain. Cross-domain fo
 
 | Schema    | Tables |
 |-----------|--------|
-| `vendors` | `vendors`, `vendor_users`, `vendor_addresses`, `vendor_verification_artifacts`, `payout_accounts`, `commission_rates` |
+| `vendors` | `vendors`, `vendor_users`, `vendor_addresses`, `vendor_verification_artifacts`, `payout_accounts`, `commission_rates`, `vendor_join_requests`, `vendor_access_tokens` |
 | `items`   | `items`, `categories`, `item_categories`, `industries`, `pricing_plans`, `features`, `integrations`, `item_integrations`, `certifications`, `item_certifications`, `item_media`, `reviews`, view `published_catalog` |
-| `buyer_companies` | `buyer_companies`, `buyer_users`, `addresses`, `payment_methods`, `buyer_verification_artifacts`, `subscriptions`, `watchlist` |
+| `buyer_companies` | `buyer_companies`, `buyer_users`, `addresses`, `payment_methods`, `buyer_verification_artifacts`, `subscriptions`, `watchlist`, `buyer_join_requests`, `buyer_access_tokens` |
+| `platform` | `staff_users` (marketplace staff, who review verification) |
 
 The migrations run in dependency order:
 
@@ -22,6 +23,12 @@ db/migrations/
   20260927100300_create_buyer_companies_core.sql               (depends on items.industries)
   20260927100400_create_cross_domain_tables.sql       subscriptions, watchlist, reviews, commission_rates
   20260927100500_create_catalog_search_and_view.sql   full-text search, trigram index, published_catalog
+  20261018200000_create_platform_staff.sql             platform schema, staff_users
+  20261018200100_add_identity_and_verification_columns.sql   auth_provider_id, user status, SSO, verified_at
+  20261018200200_add_pending_status_and_authority_artifacts.sql   new enum values only
+  20261018200300_gate_buyer_company_activation.sql     buyer company, subscription and payment gates
+  20261018200400_create_join_requests.sql
+  20261018200500_create_access_tokens.sql
 ```
 
 ## Rules enforced by the database
@@ -41,6 +48,15 @@ db/migrations/
 | A company or vendor has at most one default payment method / payout account | partial unique indexes `WHERE is_default` |
 | A subscribed plan can't be deleted (retire it with `is_active = false`) | `ON DELETE RESTRICT` |
 | A decided verification artifact has `reviewed_at`; a pending one doesn't | CHECK |
+| A buyer company can only be `active` while `verified`, and starts `pending` | CHECK `buyer_companies_active_requires_verified` |
+| Only an `active` buyer company can start a trial or paid subscription, or add a payment method | triggers `buyer_companies.enforce_subscription_gate`, `enforce_payment_method_gate` |
+| A company is `verified` exactly when it has `verified_at`; only a verified company has a verifier or an SSO connection | trigger `public.stamp_verified_at` (stamps and clears) + CHECKs |
+| Verification artifacts and verified companies are reviewed by real staff, who can't be deleted while referenced | FKs to `platform.staff_users` |
+| One Auth0 identity per row in `vendor_users`, `buyer_users` and `staff_users` | UNIQUE `auth_provider_id` (NULL until first login) |
+| Join requests and SSO provisioning only reach an `active` company; an admin invite also works while pending | triggers `vendors.enforce_join_request_gate`, `buyer_companies.enforce_join_request_gate` |
+| A join request's path, reviewer and decision agree (SSO and invites are approved at once; invites name the inviting admin, who belongs to the company) | CHECKs `*_join_requests_path_rules`, `*_reviewed_when_decided`, composite FK to the users table |
+| One open join request per person per company | partial unique index `WHERE status = 'pending'` |
+| An access token belongs to a member of the company it acts for, stores only a SHA-256 hash, and lives at most 90 days | composite FK + CHECKs |
 
 Commission resolution goes most-specific first: item → category → vendor-wide → platform default. The platform default lives in application config, not in a table row.
 
@@ -87,7 +103,21 @@ CI (`.github/workflows/test.yml`) runs the same script against a `postgres:18` s
 DATABASE_URL=... ./scripts/seed.sh    # local or Neon branch
 ```
 
+- `05_buyer_companies.sql`: two active buyer companies and one pending (Fernway Logistics).
+- `06_test_users.sql`: one member per role for login testing, matching the Auth0 test users in `isaas-auth0-config`. Test data only; leave it out of any production database.
+- `07_verification_requests.sql`: pending documents for Cascade Labs and Fernway Logistics, for trying staff review.
+
 Against production Neon, run the **seed** workflow manually from the Actions tab (`workflow_dispatch`). It reuses the `production` environment's `NEON_DATABASE_URL` secret and required reviewers, same as `deploy.yml`, but creates no tag.
+
+## Staff bootstrap
+
+The first platform staff admin is added by script, so their email is never committed:
+
+```bash
+DATABASE_URL=... STAFF_EMAIL=you@example.com STAFF_NAME='Your Name' ./scripts/bootstrap_staff.sh
+```
+
+Use the email you sign in to Auth0 with. The backend binds `auth_provider_id` on your first login. Later staff are added through the backend.
 
 ## Release flow
 
@@ -141,4 +171,6 @@ These were filled in during implementation and are not in the original design do
 - **Emails** are unique case-insensitively within `buyer_users` and within `vendor_users`.
 - **Hard deletes** are restricted wherever audit history matters: a vendor that has items, or a plan that has subscriptions, can't be deleted. Use status fields instead.
 
-Still deferred, as in the design: `promotions` (featured listings), `payouts`, an internal staff table (`reviewed_by_staff_id` has no FK yet), a `feature_key` normalization table, and "industries served" / "company sizes supported" on items.
+Still deferred, as in the design: `promotions` (featured listings), `payouts`, a `feature_key` normalization table, and "industries served" / "company sizes supported" on items.
+
+Buyer verification was originally optional and triggered. Since FD-8 it is a hard gate, like vendor KYB: a buyer company starts `pending` and can only buy once staff verify it.

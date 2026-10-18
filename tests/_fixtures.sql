@@ -10,8 +10,11 @@
 --   item.second_tool     vendor.second   published   (plan.second_pro)
 --   item.pending_product vendor.pending  draft
 --
---   company.one          buyer_user.one_admin, buyer_user.one_viewer
---   company.two          buyer_user.two_purchaser
+--   company.one          active / verified   buyer_user.one_admin, buyer_user.one_viewer
+--   company.two          active / verified   buyer_user.two_purchaser
+--   company.pending      pending / pending   buyer_user.pending_admin
+--
+--   staff.reviewer       platform staff, role reviewer
 
 INSERT INTO pg_temp.fixture_ids (name) VALUES
     ('vendor.active'), ('vendor.pending'), ('vendor.second'),
@@ -19,8 +22,13 @@ INSERT INTO pg_temp.fixture_ids (name) VALUES
     ('category.crm'), ('category.analytics'), ('industry.healthcare'),
     ('item.acme_crm'), ('item.acme_insights'), ('item.second_tool'), ('item.pending_product'),
     ('plan.acme_starter'), ('plan.insights_basic'), ('plan.second_pro'),
-    ('company.one'), ('company.two'),
-    ('buyer_user.one_admin'), ('buyer_user.one_viewer'), ('buyer_user.two_purchaser');
+    ('company.one'), ('company.two'), ('company.pending'),
+    ('buyer_user.one_admin'), ('buyer_user.one_viewer'), ('buyer_user.two_purchaser'),
+    ('buyer_user.pending_admin'),
+    ('staff.reviewer');
+
+INSERT INTO platform.staff_users (id, name, email, role) VALUES
+    (pg_temp.fx('staff.reviewer'), 'Rae Reviewer', 'rae@isaas.test', 'reviewer');
 
 INSERT INTO vendors.vendors (id, company_name, slug, status, verification_status) VALUES
     (pg_temp.fx('vendor.active'),  'Acme CRM Inc',  'acme-crm',      'active',  'verified'),
@@ -54,11 +62,13 @@ INSERT INTO items.pricing_plans (id, item_id, tier_name, pricing_model, price, b
     (pg_temp.fx('plan.insights_basic'), pg_temp.fx('item.acme_insights'), 'Basic',   'flat', 20.00, 'monthly'),
     (pg_temp.fx('plan.second_pro'),     pg_temp.fx('item.second_tool'),   'Pro',     'flat', 99.00, 'annual');
 
-INSERT INTO buyer_companies.buyer_companies (id, name, industry_id, company_size) VALUES
-    (pg_temp.fx('company.one'), 'Buyer One LLC',  pg_temp.fx('industry.healthcare'), '51-200'),
-    (pg_temp.fx('company.two'), 'Buyer Two Corp', NULL,                              '5000+');
+INSERT INTO buyer_companies.buyer_companies (id, name, industry_id, company_size, status, verification_status) VALUES
+    (pg_temp.fx('company.one'),     'Buyer One LLC',  pg_temp.fx('industry.healthcare'), '51-200', 'active',  'verified'),
+    (pg_temp.fx('company.two'),     'Buyer Two Corp', NULL,                              '5000+',  'active',  'verified'),
+    (pg_temp.fx('company.pending'), 'Pending Buyer',  NULL,                              '1-10',   'pending', 'pending');
 
 INSERT INTO buyer_companies.buyer_users (id, buyer_company_id, name, email, role) VALUES
     (pg_temp.fx('buyer_user.one_admin'),     pg_temp.fx('company.one'), 'Bo Buyer',   'bo@one.test',  'admin'),
     (pg_temp.fx('buyer_user.one_viewer'),    pg_temp.fx('company.one'), 'Bea Viewer', 'bea@one.test', 'viewer'),
-    (pg_temp.fx('buyer_user.two_purchaser'), pg_temp.fx('company.two'), 'Tom Two',    'tom@two.test', 'purchaser');
+    (pg_temp.fx('buyer_user.two_purchaser'), pg_temp.fx('company.two'), 'Tom Two',    'tom@two.test', 'purchaser'),
+    (pg_temp.fx('buyer_user.pending_admin'), pg_temp.fx('company.pending'), 'Paz Pending', 'paz@pending-buyer.test', 'admin');

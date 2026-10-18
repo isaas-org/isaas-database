@@ -50,7 +50,7 @@ SELECT pg_temp.assert_raises(
     '23514', 'vendor_verification_artifacts_reviewed_when_decided', 'vendor: pending artifact cannot have reviewed_at');
 
 UPDATE vendors.vendor_verification_artifacts
-SET status = 'approved', reviewed_at = now(), reviewed_by_staff_id = uuidv7()
+SET status = 'approved', reviewed_at = now(), reviewed_by_staff_id = pg_temp.fx('staff.reviewer')
 WHERE id = pg_temp.fx('artifact.vendor');
 
 -- Deleting a vendor cascades its artifacts and users cleanly.
